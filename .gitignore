@@ -1,8 +1,1 @@
-*.hdf 
-*.H5
-*.HDF
-*.h5
-*.tar.gz
-*.tif
-*.tiff
-
+./idea/
