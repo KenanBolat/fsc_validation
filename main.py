@@ -28,7 +28,7 @@ files_v4 = [f_.split(".")[1] for f_ in glob.glob1(processing_path, "*v04*.tif")]
 files_v5 = [f_.split(".")[1] for f_ in glob.glob1(processing_path, "*v05*.tif")]
 
 if Counter(files_v2).keys() == Counter(files_v3).keys() == Counter(files_v4).keys() == Counter(files_v5).keys():
-    for tile in Counter(files_v2).keys():
+    for tile in Counter(files_v2).keyfs():
         intermediate_date_start = datetime.datetime.now()
         date_ = convert_day_to_datetime(tile[1:])
         print(date_)
@@ -47,7 +47,7 @@ if Counter(files_v2).keys() == Counter(files_v3).keys() == Counter(files_v4).key
 
         intermediate_date_end = datetime.datetime.now()
         print(date_, "took : ", intermediate_date_end - intermediate_date_start)
-        break
+
 
 
 end = datetime.datetime.now()
