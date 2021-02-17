@@ -4,3 +4,5 @@
 */.idea/*
 .idea/*
 .idea/workspace.xml
+*.tif 
+*.xml
