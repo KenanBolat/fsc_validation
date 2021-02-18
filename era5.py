@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import glob
 import datetime
+import dask.array as da
 
 os.system("taskset -p 0xff %d" % os.getpid())
 os.sched_setaffinity(0, {i for i in range(32)})
@@ -38,7 +39,6 @@ error_list = []
 
 def masking(in_data, threshold):
     data_inter = []
-    # mars_data = in_data.read(1)
     data = in_data[0].values
     data_inter = np.where(data <= 100, data, 255)
     data_inter = np.where(data_inter < threshold, 0, data_inter)
@@ -64,7 +64,6 @@ def plot_and_save(file_, cmap_type="tab20c"):
     fname_list = f.split(".")[0].split("_")
     contin_char, month_ = fname_list[1], fname_list[5]
 
-    # cmap = ListedColormap(["white", "tan", "springgreen", "darkgreen"])
     cmap = cm.get_cmap(name=cmap_type)
 
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -93,49 +92,39 @@ def plot_and_save(file_, cmap_type="tab20c"):
     m.fillcontinents(color='beige')
 
     # load the geotiff image, assign it a variable
-    image = georaster.SingleBandRaster(fpath, \
-                                       load_data=(minx, maxx, miny, maxy), \
-                                       latlon=True)
+    image = georaster.SingleBandRaster(fpath, load_data=(minx, maxx, miny, maxy), latlon=True)
 
     # plot the image on matplotlib active axes
     # set zorder to put the image on top of coastlines and continent areas
     # set alpha to let the hidden graphics show through
 
-    norm = colors.BoundaryNorm([0, 2, 6, 8, 10, 12, 15, 20, 25, 30], 10)
     monthly_graph = ax.imshow(image.r,
                               extent=(minx, maxx, miny, maxy),
                               cmap=cmap,
-                              # norm=norm,
                               zorder=10,
                               alpha=0.6,
                               label="A")
     ax.set_title("Monthly Contingency Values of {} for month: {}".format(contin_char, month_))
-    cbar = ep.colorbar(monthly_graph)
-    boundary_means = [np.mean([norm.boundaries[ii], norm.boundaries[ii - 1]])
-                      for ii in range(1, len(norm.boundaries))]
-    category_names = ['Low', 'Medium', 'High', 'Maximum']
+    ep.colorbar(monthly_graph)
     plt.show()
     plt.savefig(os.path.join(processing_path, file_.split(".")[0] + ".png"))
 
 
-print("a")
-
-
 def masking_era5(in_data, threshold):
-    data = in_data[0].values
-    return np.where((data >= threshold), 1, 0)
+    data = in_data[0]
+    return da.where(data >= threshold, 1, 0).astype('b')
 
 
 # return cloud percentage over land areas (excluding sea or water bodies)
 def get_percentage(in_data, cloud_class_value=251, sea_class_value=252):
     from six.moves import reduce
     total_pixels_with_values = reduce(lambda x, y: x * y, in_data.shape)
-    sum_clouds = np.sum(in_data.where(in_data.values == cloud_class_value).notnull()[0])
-    sum_seas = np.sum(in_data.where(in_data.values == sea_class_value).notnull()[0])
-    return ((sum_clouds) / (total_pixels_with_values - sum_seas)) * 100
+    sum_clouds = int(np.sum(in_data.where(in_data.values == cloud_class_value).notnull()[0]))
+    sum_seas = int(np.sum(in_data.where(in_data.values == sea_class_value).notnull()[0]))
+    return sum_clouds / (total_pixels_with_values - sum_seas)
 
 
-months = [10, 11, 12, 1, 2, 3, 4, 5, 6]
+months = [11, 12, 1, 2, 3, 4, 5]
 df = pd.DataFrame(columns=["Date",
                            "SumA", "SumB", "SumC", "SumD",
                            "POD", "FAR", "Accuracy",
@@ -152,78 +141,87 @@ for en, day_ in enumerate(dates):
     print(day_, "is being processed")
     try:
         mars_data = xr.open_rasterio(os.path.join(h35_mars_path, "h35_" + day_.replace("-", "") + "_day_TSMS.tif"))
-    except BaseException as be:
+    except OSError as be:
         error_list.append(day_)
         continue
     month = int(day_.split("-")[1])
 
-    if prev != month or en == 0:
-        A, B, C, D = [np.zeros((1100, 2101)) for row in range(4)]
-        # A, B, C, D = [np.zeros((8999, 35999)) for row in range(4)]
-        df_data.loc[month] = [month, A, B, C, D]
-
-    mars_data_selected = mars_data.sel(x=slice(25, 46), y=slice(45, 34))
+    # mars_data_selected = mars_data.sel(x=slice(25, 46), y=slice(45, 34))
     # mars_data_selected = mars_data.sel(x=slice(-180, 180), y=slice(90, 0))
-    # mars_data_selected = mars_data
+    mars_data_selected = mars_data
     daily_data_era5 = aoi.sel(time=day_)
 
-    daily_data_era5_linear_interpolated = daily_data_era5['sde'].interp(latitude=list(np.arange(45, 34, -0.01)),
-                                                                        longitude=list(np.arange(25, 46 + 0.01, 0.01)),
+    # daily_data_era5_linear_interpolated = daily_data_era5['sde'].interp(latitude=list(np.arange(45, 34, -0.01)),
+    #                                                                     longitude=list(np.arange(25, 46 + 0.01, 0.01)),
+    #                                                                     method='linear')
+    daily_data_era5_linear_interpolated = daily_data_era5['sde'].interp(latitude=list(np.arange(90, 0 + 0.01, -0.01)),
+                                                                        longitude=list(
+                                                                            np.arange(-180, 180 - 0.01, 0.01)),
                                                                         method='linear')
-    # daily_data_era5_nearest_interpolated = daily_data_era5['sde'].interp(latitude=list(np.arange(45, 34, -0.01)),
-    #                                                                      longitude=list(np.arange(25, 46 + 0.01, 0.01)),
-    #                                                                      method='nearest')
-    # daily_data_era5_linear_interpolated = daily_data_era5['sde'].interp(
-    #     latitude=list(np.arange(90, 0 + 0.01, -0.01)),
-    #     longitude=list(np.arange(-180, 180 - 0.01, 0.01)),
-    #     method='linear')
-    # daily_data_era5_nearest_interpolated = daily_data_era5['sde'].interp(latitude=list(np.arange(45, 34, -0.01)),
-    #                                                                      longitude=list(np.arange(25, 46 + 0.01, 0.01)),
-    #                                                                      method='nearest')
-
+    st = datetime.datetime.now()
     try:
         pr = get_percentage(mars_data_selected)
-    except:
+    except OSError:
         error_list.append([day_, 'percentage'])
         continue
+    print("Percentage", datetime.datetime.now() - st)
+    st = datetime.datetime.now()
     data_inter_era5 = masking_era5(daily_data_era5_linear_interpolated, snow_threshold_for_era5)
-
+    print("masking_era5", datetime.datetime.now() - st)
+    st = datetime.datetime.now()
     data_inter_mars = masking(mars_data_selected, snow_threshold_for_mars)
-    work_mask = (np.where(mars_data_selected <= 100, 1, 0))
+    print("masking_mars", datetime.datetime.now() - st)
+    work_mask = (da.where(mars_data_selected <= 100, 1, 0))
     del mars_data_selected
-    A = np.where((data_inter_era5 == 1) & (data_inter_mars == 1), 1, 0) * work_mask
+
+    st = datetime.datetime.now()
+    # Hits (A)
+    A = (da.where((data_inter_era5 == 1) & (data_inter_mars == 1), 1, 0) * work_mask).astype('b').compute()
     # False Alarms (B)
-    B = np.where((data_inter_era5 == 0) & (data_inter_mars == 1), 1, 0) * work_mask
+    B = (da.where((data_inter_era5 == 0) & (data_inter_mars == 1), 1, 0) * work_mask).astype('b').compute()
     # Misses (C)
-    C = np.where((data_inter_era5 == 1) & (data_inter_mars == 0), 1, 0) * work_mask
+    C = (da.where((data_inter_era5 == 1) & (data_inter_mars == 0), 1, 0) * work_mask).astype('b').compute()
     # Correct Negatives (D)
-    D = np.where((data_inter_era5 == 0) & (data_inter_mars == 0), 1, 0) * work_mask
+    D = (da.where((data_inter_era5 == 0) & (data_inter_mars == 0), 1, 0) * work_mask).astype('b').compute()
+    print("ABCD", datetime.datetime.now() - st)
+    st = datetime.datetime.now()
+
+    # Summations
     a = np.sum(A)
     b = np.sum(B)
     c = np.sum(C)
     d = np.sum(D)
 
+    # Validation metrics calculations
     pod = a / (a + c)
     far = b / (a + b)
     acc = (a + d) / (a + b + c + d)
-
-    #
+    print("pod,a,b,c,d", datetime.datetime.now() - st)
+    # Monthly Summation
+    st = datetime.datetime.now()
+    if prev != month or en == 0:
+        # A, B, C, D = [np.zeros((1100, 2101)) for _ in range(4)]
+        A, B, C, D = [da.zeros((8999, 35999), chunks=(1000, 1000), dtype='b').compute() for _ in range(4)]
+        df_data.loc[month] = [month, A, B, C, D]
     df_data.loc[month] = [month,
                           df_data.loc[month]['A'] + A,
                           df_data.loc[month]['B'] + B,
                           df_data.loc[month]['C'] + C,
                           df_data.loc[month]['D'] + D]
+
+    print("Monthly", datetime.datetime.now() - st)
     del A, B, C, D
+
     prev = month
     end = datetime.datetime.now()
     process_end = datetime.datetime.now()
     df.loc[day_] = [pd.Timestamp(day_.replace("-", "")), a, b, c, d, pod, far, acc, start, pr,
                     (process_end - process_start).total_seconds()]
     print("Duration", process_end - process_start)
-
-df_data['POD'] = df_data['A'] / (df_data['A'] + df_data['C'])
-df_data['FAR'] = df_data['B'] / (df_data['A'] + df_data['B'])
-df_data['ACC'] = (df_data['B'] + df_data['D']) / (df_data['A'] + df_data['B'] + df_data['C'] + df_data['D'])
+#
+# df_data['POD'] = df_data['A'] / (df_data['A'] + df_data['C'])
+# df_data['FAR'] = df_data['B'] / (df_data['A'] + df_data['B'])
+# df_data['ACC'] = (df_data['B'] + df_data['D']) / (df_data['A'] + df_data['B'] + df_data['C'] + df_data['D'])
 
 era5_land_data.close()
 
