@@ -8,33 +8,25 @@ import matplotlib.pyplot as plt
 import os
 import glob
 import datetime
+import rioxarray
+# from distributed import Client
+# client = Client()
+
+
+## Plotting
+import georaster
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.basemap import Basemap
+from matplotlib.colors import ListedColormap
+import matplotlib.colors as colors
+import earthpy as et
+import earthpy.spatial as es
+import earthpy.plot as ep
+
+import matplotlib.cm as cm
+
 import dask.array as da
-
-os.system("taskset -p 0xff %d" % os.getpid())
-os.sched_setaffinity(0, {i for i in range(32)})
-
-start = datetime.datetime.now()
-processing_path = r"/media/knn/F/era5/data"
-h35_mars_path = "/media/knn/DATA/modis_hdf_data/mars_data"
-sample_geotiff = r"/media/knn/DATA/modis_hdf_data/merged_daily/MOD10A1_20190218_europe_resampled.tif"
-
-files = [os.path.join(processing_path, row) for row in glob.glob1(processing_path, "*.nc")]
-
-era5_land_data_name = 'adaptor.mars.internal-1613380008.163121-17074-7-0472c0b4-31c9-4617-9658-bac10e1a5621.nc'
-era5_land_data = xr.open_dataset(os.path.join(processing_path, era5_land_data_name), chunks={'time': 50})
-dates = list(np.datetime_as_string(era5_land_data.coords['time'], unit='D'))
-era_validation_data = era5_land_data.sel(time=slice('2018-10-01', '2019-12-31'))
-dates = list(np.datetime_as_string(era_validation_data.coords['time'], unit='D'))
-snow_threshold_for_mars = 50  # cm
-snow_threshold_for_era5 = 0.05  # 5 cm 0.05 m
-era5_land_data = era5_land_data.assign_coords(longitude=(era5_land_data.longitude + 180) % 360 - 180).sortby(
-    'longitude')
-# Define area of interest for the era5 dataset
-aoi = era5_land_data.sel(longitude=slice(-180, 180), latitude=slice(90, 0))
-# aoi = aoi['sde'].interp(latitude=list(np.arange(90, 0 + 0.01, -0.01)),
-#                         longitude=list(np.arange(-180, 180 - 0.01, 0.01)),
-#                         method='linear')
-error_list = []
 
 
 def masking(in_data, threshold):
@@ -47,19 +39,9 @@ def masking(in_data, threshold):
 
 def plot_and_save(file_, cmap_type="tab20c"):
     ## Plotting
-    import georaster
     import matplotlib
     matplotlib.use('Agg')
-
     import matplotlib.pyplot as plt
-    from mpl_toolkits.basemap import Basemap
-    from matplotlib.colors import ListedColormap
-    import matplotlib.colors as colors
-    import earthpy as et
-    import earthpy.spatial as es
-    import earthpy.plot as ep
-
-    import matplotlib.cm as cm
 
     fname_list = f.split(".")[0].split("_")
     contin_char, month_ = fname_list[1], fname_list[5]
@@ -81,14 +63,8 @@ def plot_and_save(file_, cmap_type="tab20c"):
 
     # set Basemap with slightly larger extents
     # set resolution at intermediate level "i"
-    m = Basemap(projection='cyl', \
-                llcrnrlon=minx - 2, \
-                llcrnrlat=miny - 2, \
-                urcrnrlon=maxx + 2, \
-                urcrnrlat=maxy + 2, \
-                resolution='i')
-
-    m.drawcoastlines(color="gray")
+    m = Basemap(projection='cyl', llcrnrlon=-180, llcrnrlat=0, urcrnrlon=180, urcrnrlat=90, resolution='i')
+    m.drawcoastlines(color="gray", linewidth=0.05)
     m.fillcontinents(color='beige')
 
     # load the geotiff image, assign it a variable
@@ -107,7 +83,48 @@ def plot_and_save(file_, cmap_type="tab20c"):
     ax.set_title("Monthly Contingency Values of {} for month: {}".format(contin_char, month_))
     ep.colorbar(monthly_graph)
     plt.show()
-    plt.savefig(os.path.join(processing_path, file_.split(".")[0] + ".png"))
+    plt.savefig(os.path.join(processing_path, file_.split(".")[0] + ".png"), dpi=1200)
+    plt.close("all")
+    plt.clf()
+    del plt
+    del image
+
+
+processing_path = r"/media/knn/F/era5/data"
+files = [row for row in glob.glob1(processing_path, "era_*.tif")]
+done_list = []
+
+for f in files:
+    st = datetime.datetime.now()
+    if f not in done_list:
+        print(f)
+        plot_and_save(f, 'jet')
+    print("Duration", datetime.datetime.now() - st)
+
+os.system("taskset -p 0xff %d" % os.getpid())
+os.sched_setaffinity(0, {i for i in range(32)})
+
+start = datetime.datetime.now()
+h35_mars_path = "/media/knn/DATA/modis_hdf_data/mars_data"
+sample_geotiff = r"/media/knn/DATA/modis_hdf_data/merged_daily/MOD10A1_20190218_europe_resampled.tif"
+
+files = [os.path.join(processing_path, row) for row in glob.glob1(processing_path, "*.nc")]
+
+era5_land_data_name = 'adaptor.mars.internal-1613380008.163121-17074-7-0472c0b4-31c9-4617-9658-bac10e1a5621.nc'
+era5_land_data = xr.open_dataset(os.path.join(processing_path, era5_land_data_name), chunks={'time': 50})
+dates = list(np.datetime_as_string(era5_land_data.coords['time'], unit='D'))
+era_validation_data = era5_land_data.sel(time=slice('2018-10-01', '2019-12-31'))
+dates = list(np.datetime_as_string(era_validation_data.coords['time'], unit='D'))
+snow_threshold_for_mars = 50  # cm
+snow_threshold_for_era5 = 0.05  # 5 cm 0.05 m
+era5_land_data = era5_land_data.assign_coords(longitude=(era5_land_data.longitude + 180) % 360 - 180).sortby(
+    'longitude')
+# Define area of interest for the era5 dataset
+aoi = era5_land_data.sel(longitude=slice(-180, 180), latitude=slice(90, 0))
+# aoi = aoi['sde'].interp(latitude=list(np.arange(90, 0 + 0.01, -0.01)),
+#                         longitude=list(np.arange(-180, 180 - 0.01, 0.01)),
+#                         method='linear')
+error_list = []
 
 
 def masking_era5(in_data, threshold):
@@ -225,8 +242,6 @@ for en, day_ in enumerate(dates):
 
 era5_land_data.close()
 
-import rioxarray
-
 for row in df_data['Month']:
     for key in df_data.keys():
         if key not in ['Month', 'A', 'B', 'C', 'D'] and row is not np.nan:
@@ -241,3 +256,32 @@ for row in df_data['Month']:
 files = [row for row in glob.glob1(processing_path, "era_*.tif")]
 for f in files:
     plot_and_save(f, 'jet')
+
+abcd_geotiff_files = [os.path.join(processing_path, row) for row in glob.glob1(processing_path, "era_*.tif")]
+months = list(set([int(f.split("_")[5].split(".")[0]) for f in abcd_geotiff_files]))
+for month in months:
+    print(month, "is being done..")
+    A = xr.open_rasterio(
+        [f for f in abcd_geotiff_files if f.find("_" + str(month) + ".tif") > 0 and (f.find("_A_") > 0)][0])
+    B = xr.open_rasterio(
+        [f for f in abcd_geotiff_files if f.find("_" + str(month) + ".tif") > 0 and (f.find("_B_") > 0)][0])
+    C = xr.open_rasterio(
+        [f for f in abcd_geotiff_files if f.find("_" + str(month) + ".tif") > 0 and (f.find("_C_") > 0)][0])
+    D = xr.open_rasterio(
+        [f for f in abcd_geotiff_files if f.find("_" + str(month) + ".tif") > 0 and (f.find("_D_") > 0)][0])
+    POD = A / (C + A)
+    FAR = B / (A + B)
+    ACC = A + B / (A + B + C + D)
+
+    POD.rio.to_raster(os.path.join(processing_path, "era_" + str("POD") + "_monthly_cont_mat_" + str(month) + ".tif"))
+    del POD
+    FAR.rio.to_raster(os.path.join(processing_path, "era_" + str("FAR") + "_monthly_cont_mat_" + str(month) + ".tif"))
+    del FAR
+    ACC.rio.to_raster(os.path.join(processing_path, "era_" + str("ACC") + "_monthly_cont_mat_" + str(month) + ".tif"))
+    del ACC
+    A.close()
+    B.close()
+    C.close()
+    D.close()
+    print(month, "is done")
+    break
