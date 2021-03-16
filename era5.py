@@ -11,7 +11,7 @@ import datetime
 import rioxarray
 # from distributed import Client
 # client = Client()
-
+import geos
 
 ## Plotting
 import georaster
